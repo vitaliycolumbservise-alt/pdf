@@ -280,10 +280,9 @@ if st.session_state["scenarios"]:
                 "Щоб додати ще один сценарій, змініть показники вище і натисніть «Розрахувати»."
             )
         with col2:
-            # тільки змінюємо прапорець стану, як тільки натиснули кнопку
             if st.button("Провести порівняння"):
                 st.session_state["compare_clicked"] = True
-                st.session_state["show_chart"] = False  # графік окремо вмикається кнопкою
+                st.session_state["show_chart"] = False
 
         # --- БЛОК ПОРІВНЯННЯ СЦЕНАРІЇВ ---
         if st.session_state["compare_clicked"]:
@@ -294,7 +293,6 @@ if st.session_state["scenarios"]:
                 pr = s["params"]
                 rr = s["result"]
 
-                # опис додаткових показників
                 if pr.extra_items:
                     extras = "; ".join(
                         f"{item.name} ({'+' if item.kind=='cost' else '-'}{item.amount:.2f})"
@@ -334,8 +332,8 @@ if st.session_state["scenarios"]:
             comp_df = pd.DataFrame(comp_rows).set_index("Сценарій")
             st.dataframe(comp_df, use_container_width=True)
 
-            # --- ГРАФІК ЗАЛЕЖНОСТЕЙ (X – обирається, Y – фіксоване «Разом, грн») ---
-            st.subheader("Графік залежності загальних трансакційних витрат")
+            # --- ГРАФІК ЗАЛЕЖНОСТЕЙ: X – кілька, Y – фіксоване «Разом, грн» ---
+            st.subheader("Графіки залежності загальних трансакційних витрат")
 
             # Формуємо окремий DataFrame з числовими значеннями
             plot_rows = []
@@ -357,7 +355,7 @@ if st.session_state["scenarios"]:
                         "Фіксовані витрати персонал, грн": pr.staff_fixed,
                         "Змінні витрати на замовлення, грн": pr.staff_per_order,
                         "Логістика, грн": rr["logistics"],
-                        "Платіжні сервіси, грн": rr["payments"],
+                        "Платіжні серсіси, грн": rr["payments"],
                         "Маркетинг, грн": rr["marketing"],
                         "Персонал, грн": rr["staff"],
                         "Додаткові, грн": rr["extra_net"],
@@ -367,36 +365,44 @@ if st.session_state["scenarios"]:
 
             plot_df = pd.DataFrame(plot_rows).set_index("Сценарій")
             metric_options = list(plot_df.columns)
+            y_metric = "Разом, грн" if "Разом, грн" in metric_options else metric_options[-1]
 
-            # кнопка показу графіка
             if st.button("Створити графік"):
                 st.session_state["show_chart"] = True
 
             if st.session_state["show_chart"]:
-                # користувач обирає X
-                x_metric = st.selectbox(
-                    "Показник по осі X",
-                    options=metric_options,
-                    index=metric_options.index("Частка онлайн оплат, %")
-                    if "Частка онлайн оплат, %" in metric_options
-                    else 0,
+                # можна обрати кілька показників, від яких дивимось залежність Разом, грн
+                options_for_x = [m for m in metric_options if m != y_metric]
+                default_x = []
+                if "Частка онлайн оплат, %" in options_for_x:
+                    default_x.append("Частка онлайн оплат, %")
+                elif "Q (замовлення)" in options_for_x:
+                    default_x.append("Q (замовлення)")
+                elif options_for_x:
+                    default_x.append(options_for_x[0])
+
+                x_metrics = st.multiselect(
+                    "Показники по осі X",
+                    options=options_for_x,
+                    default=default_x,
                 )
 
-                # Y фіксовано – «Разом, грн»
-                y_metric = "Разом, грн" if "Разом, грн" in metric_options else metric_options[-1]
-
-                chart_df = (
-                    plot_df[[x_metric, y_metric]]
-                    .sort_values(x_metric)
-                    .set_index(x_metric)
-                )
-                st.line_chart(chart_df)
-
-                st.caption(
-                    f"На графіку показано, як змінюється загальна сума трансакційних витрат "
-                    f"(«{y_metric}») залежно від вибраного показника «{x_metric}» "
-                    "для всіх розрахованих сценаріїв."
-                )
+                if not x_metrics:
+                    st.info("Оберіть хоча б один показник по осі X, щоб побудувати графіки.")
+                else:
+                    for x_metric in x_metrics:
+                        st.markdown(f"**Графік: {y_metric} від {x_metric}**")
+                        chart_df = (
+                            plot_df[[x_metric, y_metric]]
+                            .sort_values(x_metric)
+                            .set_index(x_metric)
+                        )
+                        st.line_chart(chart_df)
+                    st.caption(
+                        f"На графіках показано, як змінюється загальна сума трансакційних витрат "
+                        f"(«{y_metric}») залежно від обраних показників по осі X "
+                        f"для всіх розрахованих сценаріїв."
+                    )
 
             # --- Далі твій оригінальний детальний висновок ---
 
