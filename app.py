@@ -26,6 +26,10 @@ if "scenarios" not in st.session_state:
 if "compare_clicked" not in st.session_state:
     st.session_state["compare_clicked"] = False
 
+# прапорець для показу графіка
+if "show_chart" not in st.session_state:
+    st.session_state["show_chart"] = False
+
 # Значення за замовчуванням (2024 рік)
 default = ModelParams(
     Q=10900,
@@ -217,8 +221,9 @@ if st.button("Розрахувати"):
             "result": result,
         }
     )
-    # При новому розрахунку вимикаємо режим порівняння
+    # При новому розрахунку вимикаємо режим порівняння і графік
     st.session_state["compare_clicked"] = False
+    st.session_state["show_chart"] = False
 
     st.success(
         f"Сценарій №{len(st.session_state['scenarios'])} успішно розраховано."
@@ -278,6 +283,7 @@ if st.session_state["scenarios"]:
             # тільки змінюємо прапорець стану, як тільки натиснули кнопку
             if st.button("Провести порівняння"):
                 st.session_state["compare_clicked"] = True
+                st.session_state["show_chart"] = False  # графік окремо вмикається кнопкою
 
         # --- БЛОК ПОРІВНЯННЯ СЦЕНАРІЇВ ---
         if st.session_state["compare_clicked"]:
@@ -328,8 +334,8 @@ if st.session_state["scenarios"]:
             comp_df = pd.DataFrame(comp_rows).set_index("Сценарій")
             st.dataframe(comp_df, use_container_width=True)
 
-            # --- ГРАФІК ЗАЛЕЖНОСТЕЙ (НОВЕ!) ---
-            st.subheader("Графік залежності обраних показників")
+            # --- ГРАФІК ЗАЛЕЖНОСТІ (X – обирає користувач, Y – статичний «Разом, грн») ---
+            st.subheader("Графік залежності загальних трансакційних витрат")
 
             # Формуємо окремий DataFrame з числовими значеннями
             plot_rows = []
@@ -362,39 +368,36 @@ if st.session_state["scenarios"]:
             plot_df = pd.DataFrame(plot_rows).set_index("Сценарій")
             metric_options = list(plot_df.columns)
 
-            x_metric = st.selectbox(
-                "Показник по осі X",
-                options=metric_options,
-                index=metric_options.index("Частка онлайн оплат, %")
-                if "Частка онлайн оплат, %" in metric_options
-                else 0,
-            )
+            # кнопка показу графіка
+            if st.button("Створити графік"):
+                st.session_state["show_chart"] = True
 
-            y_default = ["Разом, грн"] if "Разом, грн" in metric_options else [metric_options[-1]]
-            y_metrics = st.multiselect(
-                "Показники по осі Y",
-                options=[m for m in metric_options if m != x_metric],
-                default=y_default,
-            )
+            if st.session_state["show_chart"]:
+                # користувач обирає тільки X, Y фіксований – «Разом, грн»
+                x_metric = st.selectbox(
+                    "Показник по осі X",
+                    options=metric_options,
+                    index=metric_options.index("Частка онлайн оплат, %")
+                    if "Частка онлайн оплат, %" in metric_options
+                    else 0,
+                )
 
-            if not y_metrics:
-                st.info("Оберіть хоча б один показник для осі Y, щоб побудувати графік.")
-            else:
+                y_metric = "Разом, грн" if "Разом, грн" in metric_options else metric_options[-1]
+
                 chart_df = (
-                    plot_df[[x_metric] + y_metrics]
+                    plot_df[[x_metric, y_metric]]
                     .sort_values(x_metric)
                     .set_index(x_metric)
                 )
                 st.line_chart(chart_df)
 
                 st.caption(
-                    "Графік відображає залежність обраних користувачем показників (вісь Y) "
-                    f"від показника «{x_metric}» (вісь X) для всіх розрахованих сценаріїв. "
-                    "Це дозволяє дослідити, як зміна ключових параметрів моделі впливає "
-                    "на трансакційні витрати та інші фінансові показники."
+                    f"На графіку відображено залежність загальної суми трансакційних витрат "
+                    f"(«{y_metric}») від вибраного показника «{x_metric}» для всіх розрахованих сценаріїв. "
+                    "Це дає змогу проаналізувати, як зміна ключового параметра впливає на рівень витрат."
                 )
 
-            # --- ДАЛІ ІДЕ ТВІЙ ОРИГІНАЛЬНИЙ ВИСНОВОК ---
+            # --- Далі йде твій оригінальний висновок ---
 
             # Пошук найкращого
             best = min(
@@ -444,7 +447,7 @@ if st.session_state["scenarios"]:
                 f"змінні витрати на обробку одного замовлення – "
                 f"{p.staff_per_order:.2f} грн."
             )
-
+            # Додатковий показник
             if p.extra_items:
                 extra_parts = []
                 for item in p.extra_items:
@@ -471,6 +474,7 @@ if st.session_state["scenarios"]:
             if st.button("Почати спочатку"):
                 st.session_state["scenarios"] = []
                 st.session_state["compare_clicked"] = False
+                st.session_state["show_chart"] = False
                 st.experimental_rerun()
 
 else:
