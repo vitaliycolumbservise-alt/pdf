@@ -22,7 +22,7 @@ st.write(
 if "scenarios" not in st.session_state:
     st.session_state["scenarios"] = []
 
-# прапорець для показу блоку порівняння
+# прапорець для показу блоку порівняння (щоб графік не зникав)
 if "compare_clicked" not in st.session_state:
     st.session_state["compare_clicked"] = False
 
@@ -165,7 +165,7 @@ staff_per_order = st.number_input(
     step=1.0,
 )
 
-# Додатковий показник
+# Додати показник
 st.subheader("Додатковий показник (за бажанням)")
 add_extra = st.checkbox("Додати додатковий показник до поточного сценарію")
 extra_items = []
@@ -208,6 +208,7 @@ if st.button("Розрахувати"):
         cac=cac,
         staff_fixed=staff_fixed,
         staff_per_order=staff_per_order,
+        # тільки для цього розрахунку
         extra_items=extra_items,
     )
     result = calc_total(params)
@@ -220,7 +221,7 @@ if st.button("Розрахувати"):
             "result": result,
         }
     )
-    # При новому розрахунку вимикаємо порівняння і графік
+    # При новому розрахунку вимикаємо режим порівняння і графік
     st.session_state["compare_clicked"] = False
     st.session_state["show_chart"] = False
 
@@ -228,7 +229,7 @@ if st.button("Розрахувати"):
         f"Сценарій №{len(st.session_state['scenarios'])} успішно розраховано."
     )
 
-# Вивід останнього сценарію
+# Останній сценарій
 if st.session_state["scenarios"]:
     last = st.session_state["scenarios"][-1]
     st.subheader(
@@ -243,6 +244,7 @@ if st.session_state["scenarios"]:
         {"№": 4, "Стаття": "Персонал", "Сума, грн": f"{res['staff']:.2f}"},
     ]
 
+    # Додаткові
     if res["extra_net"] != 0:
         sign = "+" if res["extra_net"] > 0 else "-"
         table.append(
@@ -264,6 +266,7 @@ if st.session_state["scenarios"]:
 
     count = len(st.session_state["scenarios"])
 
+    # Перший обрахунок
     if count == 1:
         st.info(
             "Це перший розрахунок. Ви можете змінити показники та натиснути "
@@ -277,11 +280,12 @@ if st.session_state["scenarios"]:
                 "Щоб додати ще один сценарій, змініть показники вище і натисніть «Розрахувати»."
             )
         with col2:
+            # тільки змінюємо прапорець стану, як тільки натиснули кнопку
             if st.button("Провести порівняння"):
                 st.session_state["compare_clicked"] = True
-                st.session_state["show_chart"] = False
+                st.session_state["show_chart"] = False  # графік окремо вмикається кнопкою
 
-        # --- Блок порівняння сценаріїв ---
+        # --- БЛОК ПОРІВНЯННЯ СЦЕНАРІЇВ ---
         if st.session_state["compare_clicked"]:
             st.subheader("Порівняння сценаріїв")
 
@@ -290,6 +294,7 @@ if st.session_state["scenarios"]:
                 pr = s["params"]
                 rr = s["result"]
 
+                # опис додаткових показників
                 if pr.extra_items:
                     extras = "; ".join(
                         f"{item.name} ({'+' if item.kind=='cost' else '-'}{item.amount:.2f})"
@@ -329,10 +334,10 @@ if st.session_state["scenarios"]:
             comp_df = pd.DataFrame(comp_rows).set_index("Сценарій")
             st.dataframe(comp_df, use_container_width=True)
 
-            # --- Графік: кілька X (вибір), Y = «Разом, грн», один графік ---
+            # --- ГРАФІК ЗАЛЕЖНОСТЕЙ (X – обирається, Y – фіксоване «Разом, грн») ---
             st.subheader("Графік залежності загальних трансакційних витрат")
 
-            # Формуємо окремий DataFrame з числовими значеннями по сценаріях
+            # Формуємо окремий DataFrame з числовими значеннями
             plot_rows = []
             for s in st.session_state["scenarios"]:
                 pr = s["params"]
@@ -363,64 +368,48 @@ if st.session_state["scenarios"]:
             plot_df = pd.DataFrame(plot_rows).set_index("Сценарій")
             metric_options = list(plot_df.columns)
 
-            # фіксований Y
-            y_metric = "Разом, грн" if "Разом, грн" in metric_options else metric_options[-1]
-
             # кнопка показу графіка
             if st.button("Створити графік"):
                 st.session_state["show_chart"] = True
 
             if st.session_state["show_chart"]:
-                options_for_x = [m for m in metric_options if m != y_metric]
-
-                default_x = []
-                if "Частка онлайн оплат, %" in options_for_x:
-                    default_x.append("Частка онлайн оплат, %")
-                elif "Q (замовлення)" in options_for_x:
-                    default_x.append("Q (замовлення)")
-                elif options_for_x:
-                    default_x.append(options_for_x[0])
-
-                x_candidates = st.multiselect(
-                    "Показники, які аналізувати по осі X",
-                    options=options_for_x,
-                    default=default_x,
+                # користувач обирає X
+                x_metric = st.selectbox(
+                    "Показник по осі X",
+                    options=metric_options,
+                    index=metric_options.index("Частка онлайн оплат, %")
+                    if "Частка онлайн оплат, %" in metric_options
+                    else 0,
                 )
 
-                if not x_candidates:
-                    st.info("Оберіть хоча б один показник по осі X, щоб побудувати графік.")
-                else:
-                    active_x = st.selectbox(
-                        "Активний показник по осі X для відображення на графіку",
-                        options=x_candidates,
-                    )
+                # Y фіксовано – «Разом, грн»
+                y_metric = "Разом, грн" if "Разом, грн" in metric_options else metric_options[-1]
 
-                    chart_df = (
-                        plot_df[[active_x, y_metric]]
-                        .sort_values(active_x)
-                        .set_index(active_x)
-                    )
-                    st.line_chart(chart_df)
+                chart_df = (
+                    plot_df[[x_metric, y_metric]]
+                    .sort_values(x_metric)
+                    .set_index(x_metric)
+                )
+                st.line_chart(chart_df)
 
-                    st.caption(
-                        f"На графіку показано залежність загальної суми трансакційних витрат "
-                        f"(«{y_metric}») від вибраного показника по осі X («{active_x}») "
-                        "для всіх розрахованих сценаріїв. За допомогою мультивибору "
-                        "можна обрати кілька показників для аналізу та швидко перемикатися "
-                        "між ними через список активного показника."
-                    )
+                st.caption(
+                    f"На графіку показано, як змінюється загальна сума трансакційних витрат "
+                    f"(«{y_metric}») залежно від вибраного показника «{x_metric}» "
+                    "для всіх розрахованих сценаріїв."
+                )
 
-            # --- Висновок (твоє оригінальне текстове пояснення) ---
+            # --- Далі твій оригінальний детальний висновок ---
 
+            # Пошук найкращого
             best = min(
                 st.session_state["scenarios"],
                 key=lambda x: x["result"]["total"],
             )
             best_total = best["result"]["total"]
+            # Базовим є №1
             base = st.session_state["scenarios"][0]
             base_total = base["result"]["total"]
             diff = base_total - best_total
-
             st.subheader("Висновок")
 
             text = []
@@ -459,7 +448,7 @@ if st.session_state["scenarios"]:
                 f"змінні витрати на обробку одного замовлення – "
                 f"{p.staff_per_order:.2f} грн."
             )
-
+            # Додатковий показник
             if p.extra_items:
                 extra_parts = []
                 for item in p.extra_items:
@@ -482,6 +471,7 @@ if st.session_state["scenarios"]:
 
             st.write("\n\n".join(text))
 
+            # Кнопка скидання
             if st.button("Почати спочатку"):
                 st.session_state["scenarios"] = []
                 st.session_state["compare_clicked"] = False
@@ -492,6 +482,7 @@ else:
     st.info(
         "Заповніть параметри вище і натисніть кнопку **«Розрахувати»**."
     )
+
 
 
 
