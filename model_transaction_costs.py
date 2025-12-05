@@ -1,139 +1,97 @@
-from dataclasses import dataclass
-from typing import List
-import pandas as pd
-
-
+from dataclasses import dataclass, field
+from typing import List, Dict
+#Вихідні дані та функції
 @dataclass
 class ExtraItem:
-    """
-    Додатковий показник (витрата або дохід), який користувач може додати в інтерфейсі.
-    """
+#Додатковий показник:
+#kind = "cost" додається до витрат
+#kind = "revenue" віднімається від витрат
+    
     name: str
-    value: float
-    is_revenue: bool  # True = дохід (+), False = витрата (-)
-    use_only_once: bool  # True = враховувати тільки в поточному розрахунку
-
+    kind: str        # "cost" або "revenue"
+    amount: float    # сума в грн
 
 @dataclass
 class ModelParams:
-    """
-    Базові параметри моделі інтернет-магазину.
-    Значення за замовчуванням – орієнтовні, їх можна налаштовувати в app.py.
-    """
-    orders_per_month: int = 10900          # кількість замовлень на місяць
-    avg_check: float = 800.0               # середній чек, грн
-    share_online: float = 0.6              # частка онлайн-оплат (0..1)
-    payment_commission: float = 0.015      # комісія платіжного сервісу (LiqPay/WayForPay тощо)
-    fixed_costs: float = 100_000.0         # постійні витрати (оренда, зарплата тощо)
-    variable_cost_per_order: float = 150.0 # змінні витрати на одне замовлення
-    logistic_cost_per_order: float = 90.0  # логістика на одне замовлення
-    return_rate: float = 0.05              # частка повернень замовлень (0..1)
+    Q: int                   #замовлень
+    avg_check: float         #чек
+    p_loc: float             #локальні доставки
+    p_int: float             #міжобласні
+    return_rate: float       #повернень
+    c_loc: float             #вартість локальної доставки
+    c_int: float             #вартість міжобласної
+    c_ret_loc: float         #вартість повернення локальної доставки
+    c_ret_int: float         #вартість повернення міжобласної
+    online_share: float      #частка онлайн-оплат
+    pay_commission: float    #комісія 
+    n_new_customers: int     # кількість нових клієнтів
+    cac: float               # CAC, грн
+    staff_fixed: float       # фіксовані витрати на персонал
+    staff_per_order: float   # витрати на 1 замовлення
+
+    #Додаткові показники
+    extra_items: List[ExtraItem] = field(default_factory=list)
+
+def calc_logistics(params: ModelParams) -> float:
+  #Логістика
+    #доставка виконаних замовлень
+    delivery = params.Q * (params.p_loc * params.c_loc +
+                           params.p_int * params.c_int)
+
+    #повернення
+    avg_ret_cost = params.p_loc * params.c_ret_loc + params.p_int * params.c_ret_int
+    returns = params.Q * params.return_rate * avg_ret_cost
+    return delivery + returns
 
 
-def _calc_for_one_scenario(
-    name: str,
-    params: ModelParams,
-    orders_multiplier: float,
-    return_multiplier: float,
-    extra_items: List[ExtraItem],
-) -> dict:
-    """
-    Розрахунок основних показників для одного сценарію.
-    """
-    orders = int(params.orders_per_month * orders_multiplier)
-    avg_check = params.avg_check
+def calc_payments(params: ModelParams) -> float:
+    #комісія
+    q_online = params.Q * params.online_share
+    return q_online * params.avg_check * params.pay_commission
 
-    # Дохід
-    revenue = orders * avg_check
+def calc_marketing(params: ModelParams) -> float:
+    #маркетинг
+    return params.n_new_customers * params.cac
 
-    # Трансакційні витрати (комісія платіжного сервісу)
-    online_orders = orders * params.share_online
-    transaction_costs = online_orders * avg_check * params.payment_commission
 
-    # Логістика та змінні витрати
-    logistic_costs = orders * params.logistic_cost_per_order
-    variable_costs = orders * params.variable_cost_per_order
+def calc_staff(params: ModelParams) -> float:
+    #витрати персоналу
+    return params.staff_fixed + params.staff_per_order * params.Q
 
-    # Втрати від повернень
-    returns_rate = params.return_rate * return_multiplier
-    returns_costs = orders * returns_rate * avg_check
-
-    # Постійні витрати
-    fixed_costs = params.fixed_costs
-
-    # Додаткові показники (витрати/доходи)
-    extra_costs = 0.0
-    extra_revenues = 0.0
-    for item in extra_items:
-        if item.is_revenue:
-            extra_revenues += item.value
-        else:
-            extra_costs += item.value
-
-    # Підсумок
-    total_costs = (
-        transaction_costs
-        + logistic_costs
-        + variable_costs
-        + returns_costs
-        + fixed_costs
-        + extra_costs
-    )
-    total_revenue = revenue + extra_revenues
-    profit = total_revenue - total_costs
-
+#додатковий показник
+def calc_extra(params: ModelParams) -> Dict[str, float]:
+    total_cost = 0.0
+    total_revenue = 0.0
+    for item in params.extra_items:
+        if item.kind == "cost":
+            total_cost += item.amount
+        elif item.kind == "revenue":
+            total_revenue += item.amount
+    net = total_cost - total_revenue
     return {
-        "Сценарій": name,
-        "Замовлення, шт": orders,
-        "Дохід, грн": round(total_revenue, 2),
-        "Трансакційні витрати, грн": round(transaction_costs, 2),
-        "Логістичні витрати, грн": round(logistic_costs, 2),
-        "Інші змінні витрати, грн": round(variable_costs, 2),
-        "Втрати від повернень, грн": round(returns_costs, 2),
-        "Постійні витрати, грн": round(fixed_costs + extra_costs, 2),
-        "Прибуток, грн": round(profit, 2),
+        "extra_cost": total_cost,
+        "extra_revenue": total_revenue,
+        "extra_net": net,
     }
 
 
-def calculate_scenarios(params: ModelParams, extra_items: List[ExtraItem]) -> pd.DataFrame:
-    """
-    Розрахунок трьох сценаріїв: песимістичний, базовий, оптимістичний.
-    Повертає DataFrame, який зручно показувати у Streamlit.
-    """
-    scenarios = []
+def calc_total(params: ModelParams) -> Dict[str, float]:
+    #підрахунок
+    logistics = calc_logistics(params)
+    payments = calc_payments(params)
+    marketing = calc_marketing(params)
+    staff = calc_staff(params)
+    extra = calc_extra(params)
 
-    # Песимістичний сценарій: менше замовлень, більше повернень
-    scenarios.append(
-        _calc_for_one_scenario(
-            name="Песимістичний",
-            params=params,
-            orders_multiplier=0.8,
-            return_multiplier=1.3,
-            extra_items=extra_items,
-        )
-    )
+    total = logistics + payments + marketing + staff + extra["extra_net"]
 
-    # Базовий сценарій
-    scenarios.append(
-        _calc_for_one_scenario(
-            name="Базовий",
-            params=params,
-            orders_multiplier=1.0,
-            return_multiplier=1.0,
-            extra_items=extra_items,
-        )
-    )
-
-    # Оптимістичний сценарій: більше замовлень, менше повернень
-    scenarios.append(
-        _calc_for_one_scenario(
-            name="Оптимістичний",
-            params=params,
-            orders_multiplier=1.2,
-            return_multiplier=0.7,
-            extra_items=extra_items,
-        )
-    )
-
-    df = pd.DataFrame(scenarios)
-    return df
+    return {
+        "logistics": logistics,
+        "payments": payments,
+        "marketing": marketing,
+        "staff": staff,
+        "extra_cost": extra["extra_cost"],
+        "extra_revenue": extra["extra_revenue"],
+        "extra_net": extra["extra_net"],
+        "total": total,
+    }
