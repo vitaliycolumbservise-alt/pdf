@@ -334,8 +334,8 @@ if st.session_state["scenarios"]:
             comp_df = pd.DataFrame(comp_rows).set_index("Сценарій")
             st.dataframe(comp_df, use_container_width=True)
 
-            # --- ГРАФІК ЗАЛЕЖНОСТЕЙ (X – один, Y – multiselect) ---
-            st.subheader("Графік залежності обраних показників")
+            # --- ГРАФІК ЗАЛЕЖНОСТЕЙ (X – обирається, Y – фіксоване «Разом, грн») ---
+            st.subheader("Графік залежності загальних трансакційних витрат")
 
             # Формуємо окремий DataFrame з числовими значеннями
             plot_rows = []
@@ -382,32 +382,21 @@ if st.session_state["scenarios"]:
                     else 0,
                 )
 
-                # користувач обирає кілька Y
-                default_y = []
-                if "Разом, грн" in metric_options:
-                    default_y.append("Разом, грн")
-                y_metrics = st.multiselect(
-                    "Показники по осі Y",
-                    options=[m for m in metric_options if m != x_metric],
-                    default=default_y or [metric_options[-1]],
+                # Y фіксовано – «Разом, грн»
+                y_metric = "Разом, грн" if "Разом, грн" in metric_options else metric_options[-1]
+
+                chart_df = (
+                    plot_df[[x_metric, y_metric]]
+                    .sort_values(x_metric)
+                    .set_index(x_metric)
                 )
+                st.line_chart(chart_df)
 
-                if not y_metrics:
-                    st.info("Оберіть хоча б один показник для осі Y, щоб побудувати графік.")
-                else:
-                    chart_df = (
-                        plot_df[[x_metric] + y_metrics]
-                        .sort_values(x_metric)
-                        .set_index(x_metric)
-                    )
-                    st.line_chart(chart_df)
-
-                    st.caption(
-                        "Графік відображає залежність обраних показників (вісь Y) "
-                        f"від «{x_metric}» (вісь X) для всіх розрахованих сценаріїв. "
-                        "Це дозволяє дослідити, як зміна ключових параметрів моделі "
-                        "впливає на загальні трансакційні витрати та їхні компоненти."
-                    )
+                st.caption(
+                    f"На графіку показано, як змінюється загальна сума трансакційних витрат "
+                    f"(«{y_metric}») залежно від вибраного показника «{x_metric}» "
+                    "для всіх розрахованих сценаріїв."
+                )
 
             # --- Далі твій оригінальний детальний висновок ---
 
@@ -493,6 +482,7 @@ else:
     st.info(
         "Заповніть параметри вище і натисніть кнопку **«Розрахувати»**."
     )
+
 
 
 
